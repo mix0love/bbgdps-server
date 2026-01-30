@@ -105,7 +105,19 @@ const SESSIONS = {}; // token -> user object
 function checkAuth(req, res, next) {
     const token = req.cookies['session_token'];
     if (!token || !SESSIONS[token]) return res.status(401).json({ error: 'Unauthorized' });
-    req.user = SESSIONS[token];
+
+    // Reload user from DB to ensure fresh role info
+    const users = loadUsers();
+    const freshUser = users.find(u => u.username === SESSIONS[token].username);
+
+    if (!freshUser) {
+        delete SESSIONS[token];
+        return res.status(401).json({ error: 'User not found' });
+    }
+
+    req.user = freshUser;
+    // Update session cache
+    SESSIONS[token] = freshUser;
     next();
 }
 
