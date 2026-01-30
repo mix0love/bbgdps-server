@@ -2129,15 +2129,28 @@
             }
         }
         async function fullAddLevel() {
-            db.levels.push({
+            const newLvl = {
                 id: Date.now(), name: document.getElementById('n-name').value, creator: document.getElementById('n-auth').value,
                 gd_id: document.getElementById('n-id').value, pts: parseFloat(document.getElementById('n-pts').value) || 0,
                 ver: document.getElementById('n-ver').value, cat: document.getElementById('n-cat').value,
                 min_prg: parseInt(document.getElementById('n-min').value) || 0, prg_pts: parseFloat(document.getElementById('n-runpts').value) || 0,
                 img: document.getElementById('n-vid').value, victors: [], runs: [], platformer_times: {},
                 ver_time: document.getElementById('n-ver-time').value
-            });
-            await save(); alert("Level Added"); renderAdmLevels(); document.getElementById('adm-add-lvl-form').classList.add('hidden');
+            };
+
+            try {
+                const res = await fetch('/api/admin/levels', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newLvl)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    newLvl.id = data.id; // Sync ID
+                    db.levels.push(newLvl);
+                    await save(); alert("Level Added"); renderAdmLevels(); document.getElementById('adm-add-lvl-form').classList.add('hidden');
+                } else alert("Failed to add level");
+            } catch (e) { console.error(e); alert("Network Error"); }
         }
 
         function openAdmEditLvl(id) {
@@ -2162,16 +2175,22 @@
         async function saveAdmLevelEdit() {
             const l = db.levels.find(x => x.id === editLvlId);
             if (l) {
-                l.name = document.getElementById('e-name').value;
-                l.creator = document.getElementById('e-auth').value;
-                l.gd_id = document.getElementById('e-id').value;
-                l.pts = parseFloat(document.getElementById('e-pts').value);
-                l.ver = document.getElementById('e-ver').value;
-                l.ver_time = document.getElementById('e-ver-time').value; // Save Ver Time
-                l.cat = document.getElementById('e-cat').value;
-                l.min_prg = parseInt(document.getElementById('e-min').value);
-                l.prg_pts = parseFloat(document.getElementById('e-runpts').value);
-                l.img = document.getElementById('e-vid').value;
+                // Create update object
+                const update = {
+                    name: document.getElementById('e-name').value,
+                    creator: document.getElementById('e-auth').value,
+                    gd_id: document.getElementById('e-id').value,
+                    pts: parseFloat(document.getElementById('e-pts').value),
+                    ver: document.getElementById('e-ver').value,
+                    ver_time: document.getElementById('e-ver-time').value,
+                    cat: document.getElementById('e-cat').value,
+                    min_prg: parseInt(document.getElementById('e-min').value),
+                    prg_pts: parseFloat(document.getElementById('e-runpts').value),
+                    img: document.getElementById('e-vid').value
+                };
+
+                // Sync local object for immediate UI update (optional, but good for responsiveness)
+                Object.assign(l, update);
 
                 if (l.cat !== 'platformer') {
                     delete l.ver_time;
@@ -2180,7 +2199,17 @@
                     if (!l.platformer_times) l.platformer_times = {};
                 }
 
-                await save(); closeModals(); renderAdmLevels();
+                // Send to Server
+                try {
+                    const res = await fetch(`/api/admin/levels/${editLvlId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(l) // Send full object to be safe
+                    });
+                    if (res.ok) {
+                        await save(); closeModals(); renderAdmLevels();
+                    } else alert("Failed to save changes");
+                } catch (e) { console.error(e); alert("Network Error"); }
             }
         }
         async function admAddVictor() {
@@ -2192,29 +2221,42 @@
             if (!l) return;
 
             if (l.cat === 'platformer') {
-                // Platformer: Always Victor + Time
                 if (!l.victors.includes(name)) l.victors.push(name);
                 if (!l.platformer_times) l.platformer_times = {};
                 if (score) l.platformer_times[name] = score;
-                await save(); alert(`Added ${name} with time ${score || 'N/A'}!`);
             } else {
-                // Demon/Challenge
                 const perc = parseInt(score);
                 if (!score || perc >= 100) {
-                    // 100% Victor
                     if (!l.victors.includes(name)) l.victors.push(name);
-                    await save(); alert(`Added ${name} as Victor!`);
                 } else {
-                    // Run
                     if (!l.runs) l.runs = [];
                     l.runs.push({ name: name, percent: perc });
                     l.runs.sort((a, b) => b.percent - a.percent);
-                    await save(); alert(`Added ${name} with ${perc}% run!`);
                 }
             }
+
+            // Push update to server
+            try {
+                const res = await fetch(`/api/admin/levels/${editLvlId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(l)
+                });
+                if (res.ok) {
+                    await save(); alert(`Added ${name}!`);
+                } else alert("Error saving victor");
+            } catch (e) { console.error(e); alert("Network Error"); }
         }
         async function deleteLevelFromAdm() {
-            if (confirm("DELETE LEVEL?")) { db.levels = db.levels.filter(x => x.id !== editLvlId); await save(); closeModals(); renderAdmLevels(); }
+            if (confirm("DELETE LEVEL?")) {
+                try {
+                    const res = await fetch(`/api/admin/levels/${editLvlId}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        db.levels = db.levels.filter(x => x.id !== editLvlId);
+                        await save(); closeModals(); renderAdmLevels();
+                    } else alert("Delete Failed");
+                } catch (e) { console.error(e); alert("Network Error"); }
+            }
         }
 
         function renderAdmQueue() {
@@ -2226,19 +2268,21 @@
             }).join('');
         }
         async function decideQueue(id, accept) {
-            const p = db.pending.find(x => x.id === id);
-            if (accept) {
-                const l = db.levels.find(x => x.id == p.lvlId);
-                if (l.cat === 'platformer') {
-                    if (!l.victors.includes(p.player)) l.victors.push(p.player);
-                    if (!l.platformer_times) l.platformer_times = {};
-                    l.platformer_times[p.player] = p.perc;
-                } else {
-                    if (p.perc >= 100) { if (!l.victors.includes(p.player)) l.victors.push(p.player); }
-                    else l.runs.push({ name: p.player, percent: p.perc });
-                }
-            }
-            db.pending = db.pending.filter(x => x.id !== id); await save(); renderAdmQueue();
+            try {
+                const res = await fetch(`/api/admin/queue/${id}/decide`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ accept })
+                });
+                if (res.ok) {
+                    db.pending = db.pending.filter(x => x.id !== id);
+                    if (accept) { alert("Accepted"); } else { alert("Rejected"); }
+                    // Refresh data
+                    const lRes = await fetch('/api/levels');
+                    if (lRes.ok) db.levels = await lRes.json();
+                    await save(); renderAdmQueue();
+                } else alert("Error processing queue");
+            } catch (e) { console.error(e); alert("Network Error"); }
         }
 
         function renderAdmUsers() {
@@ -2278,8 +2322,33 @@
                 </tr>`).join('');
             }
         }
-        async function admDoChangePass() { const np = document.getElementById('adm-u-pass').value; if (!np) return; const u = db.users.find(x => x.username === editUserTarget); u.pass = await sha256(np); await save(); alert("Changed"); }
-        async function admDoSetFlag() { const f = document.getElementById('adm-u-flag').value; const u = db.users.find(x => x.username === editUserTarget); u.country = f; await save(); alert("Flag Set"); renderAdmUsers(); }
+        async function admDoChangePass() {
+            const np = document.getElementById('adm-u-pass').value; if (!np) return;
+            try {
+                const res = await fetch(`/api/admin/users/${editUserTarget}/password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pass: await sha256(np) })
+                });
+                if (res.ok) { await save(); alert("Changed"); } else alert("Failed");
+            } catch (e) { console.error(e); alert("Network Error"); }
+        }
+        async function admDoSetFlag() {
+            const f = document.getElementById('adm-u-flag').value;
+            try {
+                const res = await fetch(`/api/admin/users/${editUserTarget}/flag`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ country: f })
+                });
+                if (res.ok) {
+                    // Update local cache
+                    const u = db.users.find(x => x.username === editUserTarget);
+                    if (u) u.country = f;
+                    await save(); alert("Flag Set"); renderAdmUsers();
+                } else alert("Failed");
+            } catch (e) { console.error(e); alert("Network Error"); }
+        }
 
         function renderAdmTeam() {
             document.getElementById('adm-team-list').innerHTML = db.team.map(m => `
@@ -2293,10 +2362,24 @@
             const n = document.getElementById('new-staff-name').value;
             const r = document.getElementById('new-staff-role').value;
             if (!n) return;
-            db.team.push({ name: n, role: r }); await save(); renderAdmTeam(); document.getElementById('new-staff-name').value = '';
+            try {
+                const res = await fetch('/api/admin/team', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: n, role: r })
+                });
+                if (res.ok) {
+                    db.team.push({ name: n, role: r }); await save(); renderAdmTeam(); document.getElementById('new-staff-name').value = '';
+                } else alert("Failed to add staff");
+            } catch (e) { console.error(e); alert("Network Error"); }
         }
         async function admRemoveStaff(n) {
-            db.team = db.team.filter(x => x.name !== n); await save(); renderAdmTeam();
+            try {
+                const res = await fetch(`/api/admin/team/${n}`, { method: 'DELETE' });
+                if (res.ok) {
+                    db.team = db.team.filter(x => x.name !== n); await save(); renderAdmTeam();
+                } else alert("Failed to remove staff");
+            } catch (e) { console.error(e); alert("Network Error"); }
         }
 
         function exportDB() {

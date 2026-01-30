@@ -325,6 +325,84 @@ app.delete('/api/admin/levels/:id', checkAuth, checkAdmin, (req, res) => {
     res.json({ success: true });
 });
 
+// Admin: User Management
+app.post('/api/admin/users/:username/password', checkAuth, checkAdmin, (req, res) => {
+    const { pass } = req.body;
+    const users = loadUsers();
+    const u = users.find(x => x.username === req.params.username);
+    if (!u) return res.status(404).json({ error: "User not found" });
+    u.pass = pass; // Assuming hash is sent
+    saveUsers(users);
+    logAudit(`Changed password for ${req.params.username}`, req.user.username);
+    res.json({ success: true });
+});
+
+app.post('/api/admin/users/:username/flag', checkAuth, checkAdmin, (req, res) => {
+    const { country } = req.body;
+    const users = loadUsers();
+    const u = users.find(x => x.username === req.params.username);
+    if (!u) return res.status(404).json({ error: "User not found" });
+    u.country = country;
+    saveUsers(users);
+    logAudit(`Changed flag for ${req.params.username} to ${country}`, req.user.username);
+    res.json({ success: true });
+});
+
+// Admin: Queue
+app.post('/api/admin/queue/:id/decide', checkAuth, checkAdmin, (req, res) => {
+    const { accept } = req.body;
+    const db = loadDB();
+    const qIdx = db.pending.findIndex(x => x.id == req.params.id);
+    if (qIdx === -1) return res.status(404).json({ error: "Request not found" });
+
+    const p = db.pending[qIdx];
+
+    if (accept) {
+        const l = db.levels.find(x => x.id == p.lvlId);
+        if (l) {
+            if (l.cat === 'platformer') {
+                if (!l.victors.includes(p.player)) l.victors.push(p.player);
+                if (!l.platformer_times) l.platformer_times = {};
+                l.platformer_times[p.player] = p.perc;
+            } else {
+                if (p.perc >= 100) {
+                    if (!l.victors.includes(p.player)) l.victors.push(p.player);
+                } else {
+                    if (!l.runs) l.runs = [];
+                    l.runs.push({ name: p.player, percent: parseInt(p.perc) });
+                    l.runs.sort((a, b) => b.percent - a.percent);
+                }
+            }
+        }
+    }
+
+    db.pending.splice(qIdx, 1);
+    saveDB(db);
+    logAudit(`${accept ? 'Accepted' : 'Rejected'} submission for ${p.player}`, req.user.username);
+    res.json({ success: true });
+});
+
+// Admin: Team
+app.post('/api/admin/team', checkAuth, checkAdmin, (req, res) => {
+    const { name, role } = req.body;
+    const db = loadDB();
+    if (!db.team) db.team = [];
+    db.team.push({ name, role });
+    saveDB(db);
+    logAudit(`Added staff ${name}`, req.user.username);
+    res.json({ success: true });
+});
+
+app.delete('/api/admin/team/:name', checkAuth, checkAdmin, (req, res) => {
+    const db = loadDB();
+    if (!db.team) db.team = [];
+    db.team = db.team.filter(x => x.name !== req.params.name);
+    saveDB(db);
+    logAudit(`Removed staff ${req.params.name}`, req.user.username);
+    res.json({ success: true });
+});
+
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Data Directory: ${DATA_DIR}`);
 });
