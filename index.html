@@ -1322,6 +1322,10 @@
                 <div class="adm-nav-btn" onclick="renderAdmDashboard('team', this)"><i class="fa-solid fa-crown"></i>
                     <span>Team</span>
                 </div>
+                <div class="adm-nav-btn" onclick="renderAdmDashboard('logs', this)"><i
+                        class="fa-solid fa-file-lines"></i>
+                    <span>Logs</span>
+                </div>
                 <div class="adm-nav-btn" onclick="renderAdmDashboard('settings', this)"><i class="fa-solid fa-gear"></i>
                     <span>System</span>
                 </div>
@@ -1468,6 +1472,27 @@
                         </div>
                     </div>
 
+                    <div id="adt-logs" class="adm-tab-content hidden">
+                        <div class="adm-topbar">
+                            <h2>Audit Logs</h2>
+                            <button onclick="renderAdmLogs()" class="btn btn-sec"><i class="fa-solid fa-rotate"></i>
+                                Refresh</button>
+                        </div>
+                        <div
+                            style="background:var(--bg-card); border-radius:12px; border:var(--border); overflow:hidden; overflow-x:auto;">
+                            <table class="adm-table">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Actor</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-logs"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
                     <div id="adt-settings" class="adm-tab-content hidden">
                         <div class="adm-topbar">
                             <h2>System Data</h2>
@@ -1504,11 +1529,27 @@
     <div id="modal-auth" class="modal">
         <div class="modal-box" style="text-align:center">
             <h2 style="margin-bottom:30px">Player Account</h2>
-            <div id="telegram-login-container"></div>
-            <script async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login="bbgdpsauth11bot"
-                data-size="large" data-onauth="onTelegramAuth(user)" data-request-access="write"></script>
+            <div id="view-login">
+                <input id="l-user" class="input-std" placeholder="Username">
+                <input id="l-pass" type="password" class="input-std" placeholder="Password">
+                <button onclick="login()" class="btn btn-primary" style="width:100%; margin-top:10px">Login</button>
+                <div style="margin-top:15px; font-size:0.9rem; color:var(--text-sec)">
+                    New here? <span onclick="switchAuth('reg')" style="color:var(--accent); cursor:pointer">Create
+                        Account</span>
+                </div>
+            </div>
 
-
+            <div id="view-reg" class="hidden">
+                <input id="r-user" class="input-std" placeholder="Username">
+                <input id="r-pass" type="password" class="input-std" placeholder="Password">
+                <button onclick="register()" class="btn btn-primary"
+                    style="width:100%; margin-top:10px">Register</button>
+                <div style="margin-top:15px; font-size:0.9rem; color:var(--text-sec)">
+                    Has account? <span onclick="switchAuth('login')"
+                        style="color:var(--accent); cursor:pointer">Login</span>
+                </div>
+            </div>
+            <button onclick="closeModals()" class="btn btn-sec" style="width:100%; margin-top:20px">Close</button>
         </div>
     </div>
 
@@ -1974,16 +2015,30 @@
         async function login() {
             const u = document.getElementById('l-user').value.trim();
             const p = document.getElementById('l-pass').value;
-            const user = db.users.find(x => x.username === u);
-            if (user && user.pass === await sha256(p)) { currentUser = user; localStorage.setItem('city_user', JSON.stringify(user)); location.reload(); }
-            else alert("Error");
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: u, pass: await sha256(p) })
+                });
+                const data = await res.json();
+                if (data.success) { location.reload(); }
+                else alert(data.error || "Login Failed");
+            } catch (e) { console.error(e); alert("Network Error"); }
         }
         async function register() {
             const u = document.getElementById('r-user').value.trim();
             const p = document.getElementById('r-pass').value;
-            if (db.users.find(x => x.username === u)) return alert("Taken");
-            db.users.push({ username: u, pass: await sha256(p), avatar: '', bio: '', country: '' });
-            await save(); alert("Registered"); switchAuth('login');
+            try {
+                const res = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: u, pass: await sha256(p) })
+                });
+                const data = await res.json();
+                if (data.success) { alert("Registered! You are now logged in."); location.reload(); }
+                else alert(data.error || "Registration Failed");
+            } catch (e) { console.error(e); alert("Network Error"); }
         }
         function openEditProfile() {
             document.getElementById('ep-avatar').value = currentUser.avatar || '';
@@ -2022,19 +2077,6 @@
             }
         }
 
-        async function onTelegramAuth(user) {
-            try {
-                // Construct query string from user object
-                const query = Object.keys(user).map(key => key + '=' + user[key]).join('&');
-                const res = await fetch(`/api/auth/telegram?${query}`);
-                if (res.ok) {
-                    location.reload();
-                } else {
-                    alert('Auth Failed');
-                }
-            } catch (e) { console.error(e); }
-        }
-
 
 
         function renderAdmDashboard(tab, btn) {
@@ -2053,6 +2095,7 @@
             if (tab === 'queue') renderAdmQueue();
             if (tab === 'users') renderAdmUsers();
             if (tab === 'team') renderAdmTeam();
+            if (tab === 'logs') renderAdmLogs();
         }
 
         function renderAdmLevels() {
@@ -2199,9 +2242,42 @@
         }
 
         function renderAdmUsers() {
-            document.getElementById('tbody-users').innerHTML = db.users.map(u => `<tr><td><b>${u.username}</b></td><td>${getFlagHtml(u.country)} ${u.country}</td><td>User</td><td><button onclick="admManageUser('${u.username}')" class="btn btn-sec">Manage</button></td></tr>`).join('');
+            document.getElementById('tbody-users').innerHTML = db.users.map(u => {
+                const isAdm = u.role === 'admin';
+                return `<tr>
+                    <td><b>${u.username}</b></td>
+                    <td>${getFlagHtml(u.country)} ${u.country}</td>
+                    <td><span class="status-badge ${isAdm ? 'sb-blue' : 'sb-green'}">${u.role || 'user'}</span></td>
+                    <td>
+                        <button onclick="admManageUser('${u.username}')" class="btn btn-sec" style="font-size:0.7rem">Edit</button>
+                        ${!isAdm ? `<button onclick="admPromote('${u.username}')" class="btn btn-primary" style="font-size:0.7rem; padding:4px 8px">Promote</button>` : ''}
+                        ${isAdm && u.username !== currentUser.username ? `<button onclick="admDemote('${u.username}')" class="btn btn-danger" style="font-size:0.7rem; padding:4px 8px">Demote</button>` : ''}
+                    </td>
+                </tr>`;
+            }).join('');
         }
         function admManageUser(name) { editUserTarget = name; document.getElementById('adm-u-title').innerText = "Manage: " + name; document.getElementById('modal-adm-user').style.display = 'flex'; }
+        async function admPromote(user) {
+            if (!confirm(`Promote ${user} to Admin?`)) return;
+            const res = await fetch('/api/admin/promote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetUser: user }) });
+            if (res.ok) { alert("Promoted"); renderAdmUsers(); } else alert("Error");
+        }
+        async function admDemote(user) {
+            if (!confirm(`Demote ${user} to User?`)) return;
+            const res = await fetch('/api/admin/demote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetUser: user }) });
+            if (res.ok) { alert("Demoted"); renderAdmUsers(); } else alert("Error");
+        }
+        async function renderAdmLogs() {
+            const res = await fetch('/api/admin/logs');
+            if (res.ok) {
+                const logs = await res.json();
+                document.getElementById('tbody-logs').innerHTML = logs.map(l => `<tr>
+                    <td>${new Date(l.timestamp).toLocaleString()}</td>
+                    <td style="color:var(--accent)">${l.actor}</td>
+                    <td>${l.action}</td>
+                </tr>`).join('');
+            }
+        }
         async function admDoChangePass() { const np = document.getElementById('adm-u-pass').value; if (!np) return; const u = db.users.find(x => x.username === editUserTarget); u.pass = await sha256(np); await save(); alert("Changed"); }
         async function admDoSetFlag() { const f = document.getElementById('adm-u-flag').value; const u = db.users.find(x => x.username === editUserTarget); u.country = f; await save(); alert("Flag Set"); renderAdmUsers(); }
 
