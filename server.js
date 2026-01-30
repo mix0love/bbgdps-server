@@ -219,8 +219,53 @@ app.get('/api/admin/logs', checkAuth, checkAdmin, (req, res) => {
     const logs = loadLogs();
     res.json(logs);
 });
-
 // ADMIN ACTIONS
+// --- LEVEL MANAGEMENT ---
+app.post('/api/admin/levels', checkAuth, checkAdmin, (req, res) => {
+    const db = loadDB();
+    const newLvl = req.body;
+    // Basic validation
+    if (!newLvl || !newLvl.name) return res.status(400).json({ error: "Invalid Data" });
+
+    // Ensure ID uniqueness
+    if (db.levels.find(x => x.id === newLvl.id)) newLvl.id = Date.now();
+
+    db.levels.push(newLvl);
+    saveDB(db);
+    logAudit(`Added Level: ${newLvl.name} (${newLvl.id})`, req.user.username);
+    res.json({ success: true, id: newLvl.id });
+});
+
+app.put('/api/admin/levels/:id', checkAuth, checkAdmin, (req, res) => {
+    const id = parseInt(req.params.id);
+    const db = loadDB();
+    const idx = db.levels.findIndex(x => x.id === id);
+
+    if (idx === -1) return res.status(404).json({ error: "Level not found" });
+
+    // Merge updates
+    const updatedLvl = { ...db.levels[idx], ...req.body };
+    db.levels[idx] = updatedLvl;
+
+    saveDB(db);
+    logAudit(`Updated Level: ${updatedLvl.name} (${id})`, req.user.username);
+    res.json({ success: true });
+});
+
+app.delete('/api/admin/levels/:id', checkAuth, checkAdmin, (req, res) => {
+    const id = parseInt(req.params.id);
+    const db = loadDB();
+    const idx = db.levels.findIndex(x => x.id === id);
+
+    if (idx === -1) return res.status(404).json({ error: "Level not found" });
+
+    const name = db.levels[idx].name;
+    db.levels.splice(idx, 1);
+
+    saveDB(db);
+    logAudit(`Deleted Level: ${name} (${id})`, req.user.username);
+    res.json({ success: true });
+});
 app.post('/api/admin/promote', checkAuth, checkAdmin, (req, res) => {
     const { targetUser } = req.body;
     const users = loadUsers();
