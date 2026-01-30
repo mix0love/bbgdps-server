@@ -41,7 +41,13 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
 function loadDB() {
     if (!fs.existsSync(DB_FILE)) return { levels: [], list: [], pending: [], team: [] };
-    return JSON.parse(fs.readFileSync(DB_FILE));
+    try {
+        const data = fs.readFileSync(DB_FILE, 'utf8');
+        return data ? JSON.parse(data) : { levels: [], list: [], pending: [], team: [] };
+    } catch (e) {
+        console.error("Error reading DB:", e);
+        return { levels: [], list: [], pending: [], team: [] };
+    }
 }
 
 function saveDB(data) {
@@ -50,7 +56,13 @@ function saveDB(data) {
 
 function loadUsers() {
     if (!fs.existsSync(USERS_FILE)) return [];
-    return JSON.parse(fs.readFileSync(USERS_FILE));
+    try {
+        const data = fs.readFileSync(USERS_FILE, 'utf8');
+        return data ? JSON.parse(data) : [];
+    } catch (e) {
+        console.error("Error reading Users:", e);
+        return [];
+    }
 }
 
 function saveUsers(data) {
@@ -59,7 +71,13 @@ function saveUsers(data) {
 
 function loadLogs() {
     if (!fs.existsSync(LOGS_FILE)) return [];
-    return JSON.parse(fs.readFileSync(LOGS_FILE));
+    try {
+        const data = fs.readFileSync(LOGS_FILE, 'utf8');
+        return data ? JSON.parse(data) : [];
+    } catch (e) {
+        console.error("Error reading Logs:", e);
+        return [];
+    }
 }
 
 function saveLogs(data) {
